@@ -286,6 +286,11 @@ body.multiselect .drag-handle{display:none}
 .switch .sl:before{content:"";position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
 .switch input:checked + .sl{background:var(--accent)}
 .switch input:checked + .sl:before{transform:translateX(18px)}
+.afld{width:100%;padding:10px 12px;border:1px solid var(--border-strong);border-radius:9px;outline:none;background:var(--bg-alt);margin-bottom:10px;font-size:14px}
+.afld:focus{border-color:var(--accent)}
+.auth-err{color:var(--accent);font-size:13px;margin:0 0 10px;line-height:1.5;min-height:2px}
+.auth-note{font-size:12.5px;color:var(--text-faint);line-height:1.7}
+.auth-note code{background:var(--hover);padding:1px 5px;border-radius:4px;font-size:11.5px;word-break:break-all;color:var(--text-soft)}
 
 /* modal */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:70;display:flex;align-items:flex-start;justify-content:center;padding:7vh 16px}
@@ -416,6 +421,7 @@ body.multiselect .drag-handle{display:none}
         Tasky
       </div>
       <div class="spacer"></div>
+      <button class="icon-btn" id="syncBtn" title="Sync & account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 19a4.5 4.5 0 01-.5-8.98A6 6 0 0118 9.5a3.5 3.5 0 01-.5 9.5z" stroke-linejoin="round"/></svg></button>
       <button class="icon-btn" id="themeBtn" title="Theme"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
       <button class="icon-btn" id="menuMore" title="Settings & data"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
     </div>
@@ -501,7 +507,7 @@ function seed(){
 function load(){ try{ const r=localStorage.getItem(STORE_KEY); if(r){ const d=JSON.parse(r); if(d&&d.projects) return migrate(d); } }catch(e){ console.warn(e); } const s=seed(); save(s); return s; }
 function migrate(d){ d.filters=d.filters||[]; d.settings=Object.assign({dailyGoal:5,pomoWork:25,pomoBreak:5,reminderNotif:true},d.settings||{}); d.ui=Object.assign({projCollapsed:false,filterCollapsed:false,labelCollapsed:false,sort:{},group:{}},d.ui||{}); d.tasks.forEach(t=>{ t.comments=t.comments||[];t.reminders=t.reminders||[];t.parentId=t.parentId||null;t.dueTime=t.dueTime||null;t.deadline=t.deadline||null;t.duration=t.duration||null;t.recur=t.recur||null; if(t.subtasks&&t.subtasks.length){ t.subtasks.forEach((s,i)=>{ d.tasks.push({id:s.id||uid(),title:s.title,desc:"",done:!!s.done,projectId:t.projectId,sectionId:null,parentId:t.id,priority:4,due:null,dueTime:null,deadline:null,duration:null,recur:null,labels:[],comments:[],reminders:[],order:i,created:Date.now(),completedAt:s.done?Date.now():null}); }); delete t.subtasks; } }); d.projects.forEach(p=>{ p.parentId=p.parentId||null; p.sections=p.sections||[]; if(p.boardView===undefined) p.boardView=false; }); return d; }
 function save(s){ try{ localStorage.setItem(STORE_KEY,JSON.stringify(s||state)); }catch(e){ toast("Couldn't save — storage full or blocked"); } }
-function persist(){ save(state); }
+function persist(){ save(state); if(typeof schedulePush==="function") schedulePush(); }
 let state=load();
 
 /* lookups */
@@ -1771,6 +1777,8 @@ function viewMoreMenu(anchor){
 /* ============ settings / data menu ============ */
 function settingsMenu(anchor){
   popMenu(anchor,[
+    {icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 19a4.5 4.5 0 01-.5-8.98A6 6 0 0118 9.5a3.5 3.5 0 01-.5 9.5z" stroke-linejoin="round"/></svg>`,label:sbUser?("Account — "+syncStatusText()):"Sync & sign in",fn:openSyncModal},
+    {sep:true},
     {custom:"accent"},
     {sep:true},
     {icon:icoDown,label:"Export backup (.json)",fn:exportData},
@@ -1808,6 +1816,7 @@ function closeSidebarMobile(){ document.getElementById("sidebar").classList.remo
 
 /* ============ events ============ */
 document.getElementById("themeBtn").onclick=toggleTheme;
+document.getElementById("syncBtn").onclick=openSyncModal;
 document.getElementById("menuMore").onclick=e=>settingsMenu(e.currentTarget);
 document.getElementById("sbAddTask").onclick=()=>{ if(["completed","dashboard","calendar"].includes(view.type)) setView("today"); startCompose(view.type==="project"?view.id:null,null,null); };
 document.getElementById("addProjBtn").onclick=e=>{ e.stopPropagation(); addProject(); };
@@ -1833,6 +1842,151 @@ window.addEventListener("keydown",e=>{
 });
 window.addEventListener("resize",()=>{ if(popEl) closePop(); });
 
+/* ============ Cloud sync (Supabase) ============ */
+const SYNC_KEY="tasky.sync";
+let sb=null,sbUser=null,pushTimer=null,syncDirty=false,lastSync=0,sbLoading=null,syncState="off";
+function syncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); }catch(e){ return null; } }
+function setSyncCfg(c){ try{ localStorage.setItem(SYNC_KEY,JSON.stringify(c)); }catch(e){} }
+function clearSyncCfg(){ try{ localStorage.removeItem(SYNC_KEY); }catch(e){} }
+function loadSupabase(){
+  if(window.supabase&&window.supabase.createClient) return Promise.resolve();
+  if(sbLoading) return sbLoading;
+  sbLoading=new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"; s.onload=()=>res(); s.onerror=()=>rej(new Error("Couldn't load the sync library — check your connection.")); document.head.appendChild(s); });
+  return sbLoading;
+}
+function ensureClient(){ const cfg=syncCfg(); if(!cfg||!cfg.url||!cfg.key) throw new Error("Sync isn't set up yet."); if(!sb) sb=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"tasky.auth"}}); return sb; }
+async function initSync(){
+  const cfg=syncCfg(); if(!cfg||!cfg.url||!cfg.key){ syncState="off"; updateSyncUI(); return; }
+  try{
+    await loadSupabase(); ensureClient();
+    sb.auth.onAuthStateChange((_e,session)=>{ sbUser=session?session.user:null; updateSyncUI(); });
+    const {data}=await sb.auth.getSession();
+    sbUser=data&&data.session?data.session.user:null;
+    if(sbUser){ await afterLogin(); } else { syncState="signedout"; }
+  }catch(e){ console.warn(e); syncState="error"; }
+  updateSyncUI();
+}
+async function afterLogin(){
+  if(!sb||!sbUser) return; syncState="syncing"; updateSyncUI();
+  try{
+    const remote=await fetchRemote();
+    if(remote===null){ await pushRemote(); }
+    else {
+      const localCount=(state.tasks||[]).length;
+      let useRemote=true;
+      if(localCount>0){ useRemote=confirm("Load your cloud tasks onto this device? (Cancel to upload THIS device's tasks to the cloud instead.)"); }
+      if(useRemote){ state=migrate(remote); save(state); renderAll(); toast("Loaded from cloud"); }
+      else { await pushRemote(); toast("Uploaded to cloud"); }
+    }
+    subscribeRealtime(); syncState="synced"; lastSync=Date.now();
+  }catch(e){ console.warn(e); syncState="error"; toast("Sync error: "+e.message); }
+  updateSyncUI();
+}
+async function fetchRemote(){
+  const {data,error}=await sb.from("app_state").select("data,updated_at").eq("user_id",sbUser.id).maybeSingle();
+  if(error){ if(/relation|table|schema/i.test(error.message||"")) throw new Error("The app_state table is missing — run the setup SQL."); throw error; }
+  if(!data) return null; lastSync=Date.parse(data.updated_at)||Date.now(); return data.data;
+}
+async function pushRemote(){
+  if(!sb||!sbUser) return;
+  const {error}=await sb.from("app_state").upsert({user_id:sbUser.id,data:state,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+  if(error){ syncDirty=true; syncState="error"; console.warn(error); }
+  else { syncDirty=false; lastSync=Date.now(); if(sbUser) syncState="synced"; }
+  updateSyncUI();
+}
+function schedulePush(){ if(!sb||!sbUser) return; syncDirty=true; syncState="syncing"; updateSyncUI(); clearTimeout(pushTimer); pushTimer=setTimeout(()=>{ pushRemote(); },1200); }
+function subscribeRealtime(){
+  if(!sb||!sbUser) return;
+  try{
+    sb.channel("tasky_"+sbUser.id).on("postgres_changes",{event:"*",schema:"public",table:"app_state",filter:"user_id=eq."+sbUser.id},payload=>{
+      const upd=Date.parse(payload.new.updated_at)||0;
+      if(upd>lastSync+800){ state=migrate(payload.new.data); save(state); lastSync=upd; renderAll(); toast("Synced from another device"); }
+    }).subscribe();
+  }catch(e){ console.warn(e); }
+}
+async function sbSignIn(email,pw){ await loadSupabase(); ensureClient(); const {data,error}=await sb.auth.signInWithPassword({email,password:pw}); if(error) throw error; sbUser=data.user; await afterLogin(); }
+async function sbSignUp(email,pw){ await loadSupabase(); ensureClient(); const {data,error}=await sb.auth.signUp({email,password:pw}); if(error) throw error; if(data.session){ sbUser=data.user; await afterLogin(); return "in"; } return "confirm"; }
+async function sbSignInGoogle(){ await loadSupabase(); ensureClient(); const {error}=await sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.href.split("#")[0]}}); if(error) throw error; }
+async function sbSignOut(){ try{ if(sb) await sb.auth.signOut(); }catch(e){} sbUser=null; syncState="signedout"; updateSyncUI(); }
+function syncStatusText(){
+  if(syncState==="off") return "Not connected";
+  if(syncState==="signedout"||syncState==="error"&&!sbUser) return "Signed out";
+  if(syncState==="syncing") return "Syncing…";
+  if(syncState==="error") return "Sync error";
+  if(syncState==="synced") return "Synced"+(lastSync?" · "+timeAgo(lastSync):"");
+  return "";
+}
+function timeAgo(ts){ const s=Math.round((Date.now()-ts)/1000); if(s<60)return "just now"; const m=Math.round(s/60); if(m<60)return m+"m ago"; const h=Math.round(m/60); if(h<24)return h+"h ago"; return Math.round(h/24)+"d ago"; }
+function updateSyncUI(){
+  const btn=document.getElementById("syncBtn"); if(!btn) return;
+  const color=sbUser?(syncState==="error"?"var(--p2)":syncState==="syncing"?"var(--p3)":"var(--green)"):"var(--text-soft)";
+  btn.style.color=color;
+  btn.title=sbUser?("Sync — "+syncStatusText()):(syncCfg()?"Sign in to sync":"Set up sync");
+}
+window.addEventListener("online",()=>{ if(sbUser&&syncDirty) pushRemote(); });
+
+function openSyncModal(){
+  closeModal(); closePop();
+  const cfg=syncCfg();
+  const bd=document.createElement("div"); bd.className="modal-backdrop"; bd.id="modalBd"; bd.onclick=e=>{ if(e.target===bd) closeModal(); };
+  bd.innerHTML=`<div class="modal" style="max-width:440px"><div class="modal-head"><span style="font-weight:700;display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" width="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 19a4.5 4.5 0 01-.5-8.98A6 6 0 0118 9.5a3.5 3.5 0 01-.5 9.5z" stroke-linejoin="round"/></svg>Sync & account</span><div class="spacer"></div><button class="icon-btn m-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="syncBody"></div></div>`;
+  document.body.appendChild(bd);
+  bd.querySelector(".m-close").onclick=closeModal;
+  renderSyncBody();
+}
+function renderSyncBody(){
+  const body=document.getElementById("syncBody"); if(!body) return; const cfg=syncCfg();
+  if(sbUser){
+    body.innerHTML=`
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="width:44px;height:44px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px">${esc((sbUser.email||"?")[0].toUpperCase())}</div><div><div style="font-weight:600">${esc(sbUser.email||"Signed in")}</div><div style="color:var(--text-faint);font-size:12.5px">${esc(syncStatusText())}</div></div></div>
+      <p class="auth-note" style="margin-bottom:14px">Your tasks sync automatically across every device where you sign in. This device also keeps a local copy that works offline.</p>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost s-now" style="flex:1">Sync now</button><button class="btn btn-ghost s-out" style="flex:1;color:var(--accent)">Sign out</button></div>`;
+    body.querySelector(".s-now").onclick=async()=>{ toast("Syncing…"); await pushRemote(); await afterLogin(); renderSyncBody(); };
+    body.querySelector(".s-out").onclick=async()=>{ await sbSignOut(); renderSyncBody(); };
+    return;
+  }
+  if(!cfg||!cfg.url||!cfg.key){
+    body.innerHTML=`
+      <p class="auth-note" style="margin-bottom:12px">Connect a free <b>Supabase</b> project to enable accounts and cross-device sync. One-time setup — paste your project's URL and public key below.</p>
+      <input class="afld s-url" placeholder="Project URL (https://xxxx.supabase.co)">
+      <input class="afld s-key" placeholder="Anon public key (eyJhbGci…)">
+      <div class="auth-err s-err"></div>
+      <button class="btn btn-primary s-save" style="width:100%">Save & continue</button>
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600;font-size:13px">How do I get these? (2 min)</summary>
+      <div class="auth-note" style="margin-top:8px">
+      1. Create a free account at <code>supabase.com</code> and make a new project.<br>
+      2. In the project's <b>SQL Editor</b>, paste and run the setup SQL (in the README I sent).<br>
+      3. Open <b>Project Settings → API</b>. Copy the <b>Project URL</b> and the <b>anon public</b> key into the boxes above.<br>
+      4. Under <b>Authentication → Providers</b>, make sure <b>Email</b> is enabled (Google optional).
+      </div></details>`;
+    body.querySelector(".s-save").onclick=()=>{
+      const url=body.querySelector(".s-url").value.trim().replace(/\/$/,""); const key=body.querySelector(".s-key").value.trim();
+      const err=body.querySelector(".s-err");
+      if(!/^https:\/\/.+\.supabase\.co$/.test(url)){ err.textContent="That doesn't look like a Supabase URL."; return; }
+      if(key.length<20){ err.textContent="That anon key looks too short."; return; }
+      setSyncCfg({url,key}); sb=null; renderSyncBody(); toast("Saved — now sign in or create an account");
+    };
+    return;
+  }
+  // login
+  body.innerHTML=`
+    <p class="auth-note" style="margin-bottom:12px">Sign in to sync your tasks, or create an account.</p>
+    <input class="afld a-email" type="email" placeholder="Email" autocomplete="username">
+    <input class="afld a-pw" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="auth-err a-err"></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-primary a-in" style="flex:1">Sign in</button><button class="btn btn-ghost a-up" style="flex:1">Create account</button></div>
+    <div style="text-align:center;margin:12px 0 4px;color:var(--text-faint);font-size:12px">or</div>
+    <button class="btn btn-ghost a-google" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px"><svg viewBox="0 0 24 24" width="16"><path fill="#4285F4" d="M22.5 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.9a5 5 0 01-2.2 3.3v2.7h3.6c2.1-1.9 3.2-4.8 3.2-7.8z"/><path fill="#34A853" d="M12 23c2.9 0 5.4-1 7.2-2.7l-3.6-2.7c-1 .7-2.3 1.1-3.6 1.1-2.8 0-5.1-1.9-6-4.4H2.3v2.8A11 11 0 0012 23z"/><path fill="#FBBC05" d="M6 14.3a6.6 6.6 0 010-4.2V7.3H2.3a11 11 0 000 9.8z"/><path fill="#EA4335" d="M12 5.5c1.6 0 3 .5 4.1 1.6l3.1-3.1A11 11 0 002.3 7.3l3.7 2.8c.9-2.6 3.2-4.6 6-4.6z"/></svg>Continue with Google</button>
+    <div style="text-align:center;margin-top:12px"><button class="a-change" style="color:var(--text-faint);font-size:12.5px;text-decoration:underline">Change sync server</button></div>`;
+  const err=body.querySelector(".a-err");
+  const em=()=>body.querySelector(".a-email").value.trim(), pw=()=>body.querySelector(".a-pw").value;
+  const busy=(b)=>{ body.querySelectorAll("button").forEach(x=>x.disabled=b); };
+  body.querySelector(".a-in").onclick=async()=>{ err.textContent=""; if(!em()||!pw()){err.textContent="Enter your email and password.";return;} busy(true); try{ await sbSignIn(em(),pw()); renderSyncBody(); }catch(e){ err.textContent=e.message||"Sign-in failed."; } busy(false); };
+  body.querySelector(".a-up").onclick=async()=>{ err.textContent=""; if(!em()||pw().length<6){err.textContent="Use a valid email and a password of 6+ characters.";return;} busy(true); try{ const r=await sbSignUp(em(),pw()); if(r==="confirm"){ err.style.color="var(--green)"; err.textContent="Account created — check your email to confirm, then sign in."; } else { renderSyncBody(); } }catch(e){ err.textContent=e.message||"Sign-up failed."; } busy(false); };
+  body.querySelector(".a-google").onclick=async()=>{ err.textContent=""; busy(true); try{ await sbSignInGoogle(); }catch(e){ err.textContent=e.message||"Google sign-in failed."; busy(false); } };
+  body.querySelector(".a-change").onclick=()=>{ if(confirm("Disconnect this Supabase project? Your local tasks stay on this device.")){ clearSyncCfg(); sb=null; sbUser=null; syncState="off"; updateSyncUI(); renderSyncBody(); } };
+}
+
 /* ============ boot ============ */
 (function init(){
   let th="light"; try{ th=localStorage.getItem(THEME_KEY)|| ((matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)?"dark":"light"); }catch(e){}
@@ -1840,6 +1994,7 @@ window.addEventListener("resize",()=>{ if(popEl) closePop(); });
   let ac="tomato"; try{ ac=localStorage.getItem(ACCENT_KEY)||"tomato"; }catch(e){} setAccent(ac);
   setView("today");
   checkReminders(); setInterval(checkReminders,30000);
+  try{ initSync(); }catch(e){ console.warn(e); }
   window.__TASKY_READY=true;
 })();
 </script>
