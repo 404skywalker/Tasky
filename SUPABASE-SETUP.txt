@@ -1,0 +1,83 @@
+TASKY — Enable accounts & cross-device sync (free, ~5 minutes)
+================================================================
+
+Tasky works fully offline on its own. This adds real accounts so your tasks
+sync automatically across every device where you sign in. It uses Supabase,
+which has a free tier that's plenty for personal use.
+
+--------------------------------------------------------------------
+STEP 1 — Create a Supabase project
+--------------------------------------------------------------------
+1. Go to  https://supabase.com  and sign up (free).
+2. Click "New project". Give it a name (e.g. "tasky"), set a database
+   password (save it somewhere), pick a region near you, and create it.
+3. Wait ~1 minute for it to finish setting up.
+
+--------------------------------------------------------------------
+STEP 2 — Create the storage table (paste one SQL block)
+--------------------------------------------------------------------
+1. In the left sidebar, open "SQL Editor" and click "New query".
+2. Paste ALL of the following, then click "Run":
+
+    create table if not exists public.app_state (
+      user_id uuid primary key references auth.users(id) on delete cascade,
+      data jsonb not null default '{}'::jsonb,
+      updated_at timestamptz not null default now()
+    );
+
+    alter table public.app_state enable row level security;
+
+    create policy "own row - select" on public.app_state
+      for select using (auth.uid() = user_id);
+    create policy "own row - insert" on public.app_state
+      for insert with check (auth.uid() = user_id);
+    create policy "own row - update" on public.app_state
+      for update using (auth.uid() = user_id);
+
+    alter publication supabase_realtime add table public.app_state;
+
+   (These policies make sure each account can only ever read/write its OWN
+   tasks. The last line turns on live sync between your devices.)
+
+--------------------------------------------------------------------
+STEP 3 — Turn on Email sign-in (and Google, optionally)
+--------------------------------------------------------------------
+1. Left sidebar → "Authentication" → "Providers".
+2. Make sure "Email" is enabled (it usually is by default).
+   - Tip: for the smoothest start you can turn OFF "Confirm email" under
+     Email settings, so new accounts work immediately without a confirmation
+     email. (Leave it ON if you prefer the extra step.)
+3. (Optional) To allow "Continue with Google", enable the Google provider
+   and follow Supabase's prompts to add Google OAuth credentials. Also add
+   your app's URL to Authentication → URL Configuration → Redirect URLs
+   (e.g. https://YOURNAME.github.io/tasky/).
+
+--------------------------------------------------------------------
+STEP 4 — Copy your two keys into Tasky
+--------------------------------------------------------------------
+1. Left sidebar → "Project Settings" (gear) → "API".
+2. Copy the "Project URL"  (looks like https://abcdefgh.supabase.co)
+3. Copy the "anon public" key  (a long token starting with eyJ...)
+   -- IMPORTANT: use the key labeled "anon / public", NOT "service_role".
+4. Open Tasky, click the cloud icon (top-left, next to the theme toggle),
+   paste both values, and click "Save & continue".
+5. Create an account (or sign in). Done — your tasks now sync everywhere.
+
+--------------------------------------------------------------------
+USING IT ON YOUR OTHER DEVICES
+--------------------------------------------------------------------
+- On each device, open Tasky, click the cloud icon, paste the SAME Project
+  URL + anon key once, then sign in with the SAME account.
+- The first time you sign in on a device that already has local tasks, Tasky
+  asks whether to load your cloud tasks (recommended) or upload that device's
+  tasks to the cloud.
+- After that, changes sync automatically and live. The cloud icon turns green
+  when synced.
+
+Notes on safety: the "anon public" key is safe to put in the app — it only
+allows the per-account access the SQL policies above permit. Your tasks are
+protected by your account login and Row Level Security. Data is encrypted in
+transit (HTTPS). This is the trade-off for sync: your tasks now live in your
+own Supabase project rather than only on your device.
+
+Trouble? Tell me the exact error Tasky shows and I'll help you fix it.

@@ -1,9 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light" data-accent="tomato">
+<html lang="en" data-theme="light" data-accent="indigo">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#dc4c3e">
+<meta name="theme-color" content="#6366f1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -12,41 +15,49 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Tasky">
 <meta name="application-name" content="Tasky">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <title>Tasky — Task Manager</title>
 <style>
 :root{
-  --accent:#dc4c3e; --accent-hover:#c53727;
-  --bg:#ffffff; --bg-alt:#faf9f8; --sidebar:#fcfaf9;
-  --text:#1f1f1f; --text-soft:#666461; --text-faint:#9b9691;
-  --border:#eeece9; --border-strong:#e2ded9;
-  --hover:#f4f2f0; --sel:#fff0e9;
-  --p1:#d1453b; --p2:#eb8909; --p3:#246fe0; --p4:#b0b0b0;
-  --green:#058527; --blue:#246fe0;
-  --shadow:0 2px 8px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
-  --shadow-lg:0 10px 34px rgba(0,0,0,.18);
-  --radius:10px;
+  --accent:#6366f1; --accent-hover:#5457e5; --brand1:#6366f1; --brand2:#8b5cf6;
+  --bg:#ffffff; --bg-alt:#f6f7fb; --sidebar:#fafafe;
+  --text:#191927; --text-soft:#5b5b70; --text-faint:#9a9ab0;
+  --border:#ecedf5; --border-strong:#dcdde9;
+  --hover:#f0f1f8; --sel:#eef0fe;
+  --p1:#e5484d; --p2:#f2900d; --p3:#3b82f6; --p4:#b6b6c6;
+  --green:#12a150; --blue:#3b82f6;
+  --shadow:0 2px 10px rgba(30,30,60,.07),0 1px 3px rgba(30,30,60,.05);
+  --shadow-lg:0 14px 40px rgba(30,30,60,.16);
+  --radius:12px;
+  --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font-display:"Space Grotesk","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 [data-theme="dark"]{
-  --bg:#1e1e1e; --bg-alt:#252525; --sidebar:#282828;
-  --text:#e9e7e4; --text-soft:#a8a5a1; --text-faint:#787571;
-  --border:#383838; --border-strong:#464646;
-  --hover:#323232; --sel:#3a2a24;
-  --p4:#8a8a8a; --shadow:0 2px 8px rgba(0,0,0,.4); --shadow-lg:0 10px 34px rgba(0,0,0,.55);
+  --bg:#131318; --bg-alt:#1b1b22; --sidebar:#17171d;
+  --text:#e7e7f0; --text-soft:#a2a2b4; --text-faint:#6c6c80;
+  --border:#292933; --border-strong:#393945;
+  --hover:#212129; --sel:#242244;
+  --p4:#7a7a8c; --shadow:0 2px 10px rgba(0,0,0,.5); --shadow-lg:0 14px 44px rgba(0,0,0,.6);
 }
-[data-accent="tomato"]{--accent:#dc4c3e;--accent-hover:#c53727}
-[data-accent="blue"]{--accent:#2f6fed;--accent-hover:#255fd0;--sel:#e8f0ff}
-[data-accent="violet"]{--accent:#7c4dff;--accent-hover:#6a3ce0;--sel:#f0eaff}
-[data-accent="green"]{--accent:#0f9d58;--accent-hover:#0c854a;--sel:#e6f6ee}
-[data-accent="pink"]{--accent:#e0518f;--accent-hover:#cc4180;--sel:#ffeaf3}
-[data-accent="teal"]{--accent:#0f9aa8;--accent-hover:#0c8391;--sel:#e3f6f8}
-[data-theme="dark"][data-accent="blue"]{--sel:#233246}
+[data-accent="indigo"]{--accent:#6366f1;--accent-hover:#5457e5;--brand1:#6366f1;--brand2:#8b5cf6;--sel:#eef0fe}
+[data-accent="violet"]{--accent:#8b5cf6;--accent-hover:#7c4de8;--brand1:#8b5cf6;--brand2:#d946ef;--sel:#f3ecff}
+[data-accent="tomato"]{--accent:#f04438;--accent-hover:#dc3730;--brand1:#fb7185;--brand2:#f04438;--sel:#ffeeec}
+[data-accent="blue"]{--accent:#2f6fed;--accent-hover:#255fd0;--brand1:#38bdf8;--brand2:#2f6fed;--sel:#e8f0ff}
+[data-accent="green"]{--accent:#12a150;--accent-hover:#0e8a44;--brand1:#34d399;--brand2:#12a150;--sel:#e6f7ee}
+[data-accent="teal"]{--accent:#0d9aa8;--accent-hover:#0b8391;--brand1:#2dd4bf;--brand2:#0d9aa8;--sel:#e0f7f8}
+[data-accent="amber"]{--accent:#e8850c;--accent-hover:#cf760a;--brand1:#fbbf24;--brand2:#e8850c;--sel:#fdf1e0}
+[data-theme="dark"][data-accent="indigo"]{--sel:#242247}
 [data-theme="dark"][data-accent="violet"]{--sel:#2c2444}
-[data-theme="dark"][data-accent="green"]{--sel:#1c3327}
-[data-theme="dark"][data-accent="pink"]{--sel:#3a2430}
-[data-theme="dark"][data-accent="teal"]{--sel:#173135}
+[data-theme="dark"][data-accent="tomato"]{--sel:#3a2422}
+[data-theme="dark"][data-accent="blue"]{--sel:#1e2c44}
+[data-theme="dark"][data-accent="green"]{--sel:#173327}
+[data-theme="dark"][data-accent="teal"]{--sel:#123133}
+[data-theme="dark"][data-accent="amber"]{--sel:#33260f}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;overflow:hidden}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 svg{display:block}
@@ -56,8 +67,9 @@ svg{display:block}
 /* Sidebar */
 .sidebar{width:290px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:margin-left .22s}
 .sb-head{display:flex;align-items:center;gap:6px;padding:12px 12px 6px}
-.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;color:var(--accent)}
-.brand svg{width:22px;height:22px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:19px;font-family:var(--font-display);letter-spacing:-.02em}
+.brand svg{width:25px;height:25px}
+.brand .wm{background:linear-gradient(120deg,var(--brand1),var(--brand2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .sb-head .spacer{flex:1}
 .icon-btn{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-soft);flex-shrink:0}
 .icon-btn:hover{background:var(--hover);color:var(--text)}
@@ -111,7 +123,7 @@ svg{display:block}
 .container{max-width:800px;margin:0 auto;padding:0 24px}
 .container.wide{max-width:1200px}
 .view-head{padding:12px 0 4px}
-.view-title{font-size:22px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.view-title{font-size:23px;font-weight:700;letter-spacing:-.02em;font-family:var(--font-display);display:flex;align-items:center;gap:10px}
 .view-title .vt-emoji{font-size:20px}
 .view-sub{color:var(--text-faint);font-size:13px;margin-top:2px}
 .view-actions{display:flex;gap:4px;margin-left:auto}
@@ -417,8 +429,8 @@ body.multiselect .drag-handle{display:none}
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
       <div class="brand">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="6" fill="currentColor"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Tasky
+        <svg viewBox="0 0 24 24" fill="none"><defs><linearGradient id="tgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect x="2" y="2" width="20" height="20" rx="6.5" fill="url(#tgrad)"/><path d="M7 12.4l3.3 3.3L17.2 8.4" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="wm">Tasky</span>
       </div>
       <div class="spacer"></div>
       <button class="icon-btn" id="syncBtn" title="Sync & account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 19a4.5 4.5 0 01-.5-8.98A6 6 0 0118 9.5a3.5 3.5 0 01-.5 9.5z" stroke-linejoin="round"/></svg></button>
@@ -1795,7 +1807,7 @@ function settingsMenu(anchor){
     const wrap=document.createElement("div"); wrap.style.padding="4px 8px";
     wrap.innerHTML=`<div class="pop-title" style="padding-left:0">Accent color</div>`;
     const row=document.createElement("div"); row.style.cssText="display:flex;gap:8px;padding:4px 0";
-    [["tomato","#dc4c3e"],["blue","#2f6fed"],["violet","#7c4dff"],["green","#0f9d58"],["pink","#e0518f"],["teal","#0f9aa8"]].forEach(([k,c])=>{ const s=document.createElement("div"); s.className="color-swatch"+(document.documentElement.getAttribute("data-accent")===k?" sel":""); s.style.background=c; s.onclick=()=>{ setAccent(k); pop.querySelectorAll(".color-swatch").forEach(x=>x.classList.remove("sel")); s.classList.add("sel"); }; row.appendChild(s); });
+    [["indigo","#6366f1"],["violet","#8b5cf6"],["blue","#2f6fed"],["teal","#0d9aa8"],["green","#12a150"],["amber","#e8850c"],["tomato","#f04438"]].forEach(([k,c])=>{ const s=document.createElement("div"); s.className="color-swatch"+(document.documentElement.getAttribute("data-accent")===k?" sel":""); s.style.background=c; s.onclick=()=>{ setAccent(k); pop.querySelectorAll(".color-swatch").forEach(x=>x.classList.remove("sel")); s.classList.add("sel"); }; row.appendChild(s); });
     wrap.appendChild(row); return wrap;
   });
 }
@@ -2052,7 +2064,7 @@ function renderSyncBody(){
 (function init(){
   let th="light"; try{ th=localStorage.getItem(THEME_KEY)|| ((matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)?"dark":"light"); }catch(e){}
   applyTheme(th);
-  let ac="tomato"; try{ ac=localStorage.getItem(ACCENT_KEY)||"tomato"; }catch(e){} setAccent(ac);
+  let ac="indigo"; try{ ac=localStorage.getItem(ACCENT_KEY)||"indigo"; }catch(e){} setAccent(ac);
   setView("today");
   checkReminders(); setInterval(checkReminders,30000);
   try{ initSync(); }catch(e){ console.warn(e); }
