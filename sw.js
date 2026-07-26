@@ -1,5 +1,5 @@
 /* Tasky service worker — offline app shell caching */
-const CACHE = "tasky-v2.0.0";
+const CACHE = "tasky-v2.1.0";
 const ASSETS = [
   "./",
   "./index.html",
