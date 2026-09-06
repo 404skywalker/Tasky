@@ -572,7 +572,7 @@ function seed(){
 function load(){ try{ const r=localStorage.getItem(STORE_KEY); if(r){ const d=JSON.parse(r); if(d&&d.projects) return migrate(d); } }catch(e){ console.warn(e); } const s=seed(); save(s); return s; }
 function migrate(d){ d.filters=d.filters||[]; d.templates=d.templates||[]; d.settings=Object.assign({dailyGoal:5,weeklyGoal:25,pomoWork:25,pomoBreak:5,reminderNotif:true,vacation:false},d.settings||{}); d.ui=Object.assign({projCollapsed:false,filterCollapsed:false,labelCollapsed:false,sort:{},group:{}},d.ui||{}); d.tasks.forEach(t=>{ t.comments=t.comments||[];t.reminders=t.reminders||[];t.parentId=t.parentId||null;t.dueTime=t.dueTime||null;t.deadline=t.deadline||null;t.duration=t.duration||null;t.recur=t.recur||null; if(t.subtasks&&t.subtasks.length){ t.subtasks.forEach((s,i)=>{ d.tasks.push({id:s.id||uid(),title:s.title,desc:"",done:!!s.done,projectId:t.projectId,sectionId:null,parentId:t.id,priority:4,due:null,dueTime:null,deadline:null,duration:null,recur:null,labels:[],comments:[],reminders:[],order:i,created:Date.now(),completedAt:s.done?Date.now():null}); }); delete t.subtasks; } }); d.projects.forEach(p=>{ p.parentId=p.parentId||null; p.sections=p.sections||[]; if(p.boardView===undefined) p.boardView=false; }); return d; }
 function save(s){ try{ localStorage.setItem(STORE_KEY,JSON.stringify(s||state)); }catch(e){ toast("Couldn't save — storage full or blocked"); } }
-function persist(){ save(state); if(typeof schedulePush==="function") schedulePush(); }
+function persist(){ save(state); if(typeof schedulePush==="function") schedulePush(); if(typeof gcalOnChange==="function") gcalOnChange(); }
 let state=load();
 
 /* lookups */
@@ -2012,6 +2012,7 @@ function viewMoreMenu(anchor){
 function settingsMenu(anchor){
   popMenu(anchor,[
     {icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 19a4.5 4.5 0 01-.5-8.98A6 6 0 0118 9.5a3.5 3.5 0 01-.5 9.5z" stroke-linejoin="round"/></svg>`,label:sbUser?("Account — "+syncStatusText()):"Sync & sign in",fn:openSyncModal},
+    {icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4" stroke-linecap="round"/></svg>`,label:"Google Calendar"+(gcalConnected?" — "+gcalStatusText():""),fn:openGcalModal},
     {sep:true},
     {custom:"accent"},
     {sep:true},
@@ -2280,6 +2281,99 @@ function renderSyncBody(){
   body.querySelector(".a-change").onclick=()=>{ if(confirm("Disconnect this Supabase project? Your local tasks stay on this device.")){ clearSyncCfg(); sb=null; sbUser=null; syncState="off"; updateSyncUI(); renderSyncBody(); } };
 }
 
+/* ============ Google Calendar sync ============ */
+const GCAL_KEY="tasky.gcal", GCAL_SCOPE="https://www.googleapis.com/auth/calendar";
+let gcalTokenClient=null, gcalToken=null, gcalConnected=false, gcalState="off", gcalLastSync=0, gcalTimer=null, gisLoading=null, gcalBusy=false;
+function gcalCfg(){ try{ return JSON.parse(localStorage.getItem(GCAL_KEY)||"null"); }catch(e){ return null; } }
+function setGcalCfg(c){ try{ localStorage.setItem(GCAL_KEY,JSON.stringify(c)); }catch(e){} }
+function clearGcalCfg(){ try{ localStorage.removeItem(GCAL_KEY); }catch(e){} }
+function loadGis(){ if(window.google&&google.accounts&&google.accounts.oauth2) return Promise.resolve(); if(gisLoading) return gisLoading; gisLoading=new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true; s.defer=true; s.onload=()=>res(); s.onerror=()=>rej(new Error("Couldn't load Google sign-in — check your connection.")); document.head.appendChild(s); }); return gisLoading; }
+function ensureToken(interactive){
+  return new Promise((res,rej)=>{
+    if(gcalToken&&gcalToken.exp>Date.now()+60000){ res(gcalToken.token); return; }
+    if(!gcalTokenClient){ rej(new Error("Not initialized")); return; }
+    gcalTokenClient.callback=resp=>{ if(resp&&resp.error){ rej(new Error(resp.error)); return; } gcalToken={token:resp.access_token,exp:Date.now()+(resp.expires_in||3600)*1000}; res(gcalToken.token); };
+    try{ gcalTokenClient.requestAccessToken({prompt:interactive?"consent":""}); }catch(e){ rej(e); }
+  });
+}
+async function gcalApi(method,path,body){
+  const token=await ensureToken(false);
+  const r=await fetch("https://www.googleapis.com/calendar/v3"+path,{method,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+  if(r.status===401){ gcalToken=null; throw new Error("Session expired — reconnect Google Calendar."); }
+  if(!r.ok){ const t=await r.text().catch(()=>""); throw new Error("Calendar API "+r.status+(t?": "+t.slice(0,100):"")); }
+  return r.status===204?null:r.json();
+}
+async function ensureTaskyCalendar(){
+  const cfg=gcalCfg()||{}; if(cfg.calendarId) return cfg.calendarId;
+  const list=await gcalApi("GET","/users/me/calendarList");
+  let cal=(list.items||[]).find(c=>c.summary==="Tasky");
+  let id; if(cal){ id=cal.id; } else { const created=await gcalApi("POST","/calendars",{summary:"Tasky",description:"Your tasks from the Tasky app"}); id=created.id; }
+  setGcalCfg(Object.assign(cfg,{calendarId:id})); return id;
+}
+function eventForTask(t){
+  const pad=n=>String(n).padStart(2,"0");
+  const ev={summary:t.title,description:(t.desc?t.desc+"\n\n":"")+"— synced from Tasky",extendedProperties:{private:{taskyId:t.id}},colorId:({1:"11",2:"6",3:"9",4:"8"})[t.priority||4]};
+  if(t.dueTime){ const s=new Date(t.due+"T"+t.dueTime+":00"); const e=new Date(s.getTime()+((t.duration||60)*60000)); const fmt=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":00"; ev.start={dateTime:fmt(s)}; ev.end={dateTime:fmt(e)}; }
+  else { ev.start={date:t.due}; ev.end={date:ymdPlus(1,t.due)}; }
+  return ev;
+}
+async function reconcileGcal(){
+  const cfg=gcalCfg(); if(!cfg||!cfg.clientId||gcalBusy) return; gcalBusy=true; gcalState="syncing"; updateGcalUI();
+  try{
+    const calId=await ensureTaskyCalendar();
+    let items=[], pageToken;
+    do{ const r=await gcalApi("GET","/calendars/"+encodeURIComponent(calId)+"/events?maxResults=2500&showDeleted=false"+(pageToken?"&pageToken="+pageToken:"")); items=items.concat(r.items||[]); pageToken=r.nextPageToken; }while(pageToken);
+    const byTask={}; items.forEach(ev=>{ const tid=ev.extendedProperties&&ev.extendedProperties.private&&ev.extendedProperties.private.taskyId; if(tid) byTask[tid]=ev; });
+    const wanted=state.tasks.filter(t=>t.due&&!t.done); const wantedIds=new Set(wanted.map(t=>t.id));
+    for(const t of wanted){ const ev=eventForTask(t); const ex=byTask[t.id]; if(ex){ await gcalApi("PATCH","/calendars/"+encodeURIComponent(calId)+"/events/"+ex.id,ev); } else { const c=await gcalApi("POST","/calendars/"+encodeURIComponent(calId)+"/events",ev); t.gcalId=c.id; } }
+    for(const tid in byTask){ if(!wantedIds.has(tid)){ try{ await gcalApi("DELETE","/calendars/"+encodeURIComponent(calId)+"/events/"+byTask[tid].id); }catch(e){} } }
+    save(state); gcalState="synced"; gcalLastSync=Date.now();
+  }catch(e){ console.warn(e); gcalState="error"; toast("Calendar sync: "+(e.message||e)); }
+  gcalBusy=false; updateGcalUI();
+}
+function gcalOnChange(){ const cfg=gcalCfg(); if(!cfg||!cfg.clientId||!cfg.autoSync||!gcalConnected) return; clearTimeout(gcalTimer); gcalTimer=setTimeout(()=>reconcileGcal(),3000); }
+async function connectGcal(){
+  const cfg=gcalCfg(); if(!cfg||!cfg.clientId){ toast("Enter your Client ID first"); return; }
+  try{ await loadGis(); gcalTokenClient=google.accounts.oauth2.initTokenClient({client_id:cfg.clientId,scope:GCAL_SCOPE,callback:()=>{}}); await ensureToken(true); gcalConnected=true; setGcalCfg(Object.assign(cfg,{connected:true,autoSync:cfg.autoSync!==false})); toast("Connecting… syncing your tasks"); await reconcileGcal(); renderGcalBody(); }
+  catch(e){ console.warn(e); toast("Couldn't connect: "+(e.message||e)); }
+}
+async function initGcal(){
+  const cfg=gcalCfg(); if(!cfg||!cfg.clientId||!cfg.connected){ gcalState="off"; return; }
+  try{ await loadGis(); gcalTokenClient=google.accounts.oauth2.initTokenClient({client_id:cfg.clientId,scope:GCAL_SCOPE,callback:()=>{}}); await ensureToken(false); gcalConnected=true; gcalState="synced"; }
+  catch(e){ gcalConnected=false; gcalState="signedout"; }
+  updateGcalUI();
+}
+function disconnectGcal(){ try{ if(gcalToken&&window.google&&google.accounts&&google.accounts.oauth2) google.accounts.oauth2.revoke(gcalToken.token,()=>{}); }catch(e){} gcalToken=null; gcalConnected=false; gcalState="off"; const cfg=gcalCfg()||{}; setGcalCfg(Object.assign(cfg,{connected:false})); }
+function gcalStatusText(){ if(gcalState==="syncing") return "Syncing…"; if(gcalState==="error") return "Sync error"; if(gcalState==="synced") return "Synced"+(gcalLastSync?" · "+timeAgo(gcalLastSync):""); if(gcalState==="signedout") return "Reconnect needed"; return "Not connected"; }
+function updateGcalUI(){ const b=document.getElementById("gcalStatus"); if(b) b.textContent=gcalStatusText(); }
+function openGcalModal(){ closeModal(); closePop(); const bd=document.createElement("div"); bd.className="modal-backdrop"; bd.id="modalBd"; bd.onclick=e=>{ if(e.target===bd) closeModal(); }; bd.innerHTML=`<div class="modal" style="max-width:440px"><div class="modal-head"><span style="font-weight:700;display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" width="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4" stroke-linecap="round"/></svg>Google Calendar</span><div class="spacer"></div><button class="icon-btn m-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="gcalBody"></div></div>`; document.body.appendChild(bd); bd.querySelector(".m-close").onclick=closeModal; renderGcalBody(); }
+function renderGcalBody(){
+  const body=document.getElementById("gcalBody"); if(!body) return; const cfg=gcalCfg();
+  if(gcalConnected){
+    body.innerHTML=`<p class="auth-note" style="margin-bottom:12px">Connected. Your tasks with a due date appear in a <b>Tasky</b> calendar in Google Calendar, and stay in sync when they change.</p>
+      <div style="color:var(--text-faint);font-size:12.5px;margin-bottom:14px" id="gcalStatus">${esc(gcalStatusText())}</div>
+      <div class="disp-row" style="padding:0 0 12px"><span style="flex:1">Auto-sync on changes</span><label class="switch"><input type="checkbox" class="g-auto" ${(cfg&&cfg.autoSync!==false)?"checked":""}><span class="sl"></span></label></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost g-now" style="flex:1">Sync now</button><button class="btn btn-ghost g-off" style="flex:1;color:var(--accent)">Disconnect</button></div>`;
+    body.querySelector(".g-now").onclick=()=>reconcileGcal();
+    body.querySelector(".g-auto").onchange=e=>{ const c=gcalCfg()||{}; setGcalCfg(Object.assign(c,{autoSync:e.target.checked})); };
+    body.querySelector(".g-off").onclick=()=>{ disconnectGcal(); renderGcalBody(); };
+    return;
+  }
+  if(!cfg||!cfg.clientId){
+    body.innerHTML=`<p class="auth-note" style="margin-bottom:12px">Show your Tasky tasks on Google Calendar. One-time setup — create a free Google OAuth <b>Client ID</b> and paste it below (steps in the guide I sent).</p>
+      <input class="afld g-cid" placeholder="OAuth Client ID (…apps.googleusercontent.com)">
+      <div class="auth-err g-err"></div>
+      <button class="btn btn-primary g-save" style="width:100%">Save &amp; continue</button>`;
+    body.querySelector(".g-save").onclick=()=>{ const v=body.querySelector(".g-cid").value.trim(); const err=body.querySelector(".g-err"); if(!/\.apps\.googleusercontent\.com$/.test(v)){ err.textContent="That doesn't look like a Google Client ID."; return; } setGcalCfg({clientId:v,autoSync:true,connected:false}); renderGcalBody(); toast("Saved — now connect"); };
+    return;
+  }
+  body.innerHTML=`<p class="auth-note" style="margin-bottom:14px">Client ID saved. Connect your Google account to start syncing tasks to a <b>Tasky</b> calendar.</p>
+    <button class="btn btn-primary g-connect" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px"><svg viewBox="0 0 24 24" width="16"><path fill="#4285F4" d="M22.5 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.9a5 5 0 01-2.2 3.3v2.7h3.6c2.1-1.9 3.2-4.8 3.2-7.8z"/><path fill="#34A853" d="M12 23c2.9 0 5.4-1 7.2-2.7l-3.6-2.7c-1 .7-2.3 1.1-3.6 1.1-2.8 0-5.1-1.9-6-4.4H2.3v2.8A11 11 0 0012 23z"/><path fill="#FBBC05" d="M6 14.3a6.6 6.6 0 010-4.2V7.3H2.3a11 11 0 000 9.8z"/><path fill="#EA4335" d="M12 5.5c1.6 0 3 .5 4.1 1.6l3.1-3.1A11 11 0 002.3 7.3l3.7 2.8c.9-2.6 3.2-4.6 6-4.6z"/></svg>Connect Google Calendar</button>
+    <div style="text-align:center;margin-top:12px"><button class="g-change" style="color:var(--text-faint);font-size:12.5px;text-decoration:underline">Change Client ID</button></div>`;
+  body.querySelector(".g-connect").onclick=connectGcal;
+  body.querySelector(".g-change").onclick=()=>{ clearGcalCfg(); renderGcalBody(); };
+}
+
 /* ============ boot ============ */
 (function init(){
   let th="light"; try{ th=localStorage.getItem(THEME_KEY)|| ((matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)?"dark":"light"); }catch(e){}
@@ -2288,6 +2382,7 @@ function renderSyncBody(){
   setView("today");
   checkReminders(); setInterval(checkReminders,30000);
   try{ initSync(); }catch(e){ console.warn(e); }
+  try{ initGcal(); }catch(e){ console.warn(e); }
   window.__TASKY_READY=true;
 })();
 </script>
